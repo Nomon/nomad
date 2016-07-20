@@ -232,11 +232,6 @@ func (n *nomadFSM) applyUpsertJob(buf []byte, index uint64) interface{} {
 		return err
 	}
 
-	if err := n.state.UpdateSummaryWithJob(req.Job, index); err != nil {
-		n.logger.Printf("[ERR] nomad.fsm: Updating job summary failed: %v", err)
-		return err
-	}
-
 	// We always add the job to the periodic dispatcher because there is the
 	// possibility that the periodic spec was removed and then we should stop
 	// tracking it.
@@ -391,10 +386,6 @@ func (n *nomadFSM) applyAllocUpdate(buf []byte, index uint64) interface{} {
 		}
 	}
 
-	if err := n.updateJobSummary(index, req.Alloc); err != nil {
-		return err
-	}
-
 	if err := n.state.UpsertAllocs(index, req.Alloc); err != nil {
 		n.logger.Printf("[ERR] nomad.fsm: UpsertAllocs failed: %v", err)
 		return err
@@ -410,10 +401,6 @@ func (n *nomadFSM) applyAllocClientUpdate(buf []byte, index uint64) interface{} 
 	}
 	if len(req.Alloc) == 0 {
 		return nil
-	}
-
-	if err := n.updateJobSummary(index, req.Alloc); err != nil {
-		return err
 	}
 
 	// Update all the client allocations
@@ -435,20 +422,6 @@ func (n *nomadFSM) applyAllocClientUpdate(buf []byte, index uint64) interface{} 
 
 			}
 			n.blockedEvals.Unblock(node.ComputedClass, index)
-		}
-	}
-
-	return nil
-}
-
-func (n *nomadFSM) updateJobSummary(index uint64, allocations []*structs.Allocation) error {
-	for _, alloc := range allocations {
-		existingAlloc, err := n.state.AllocByID(alloc.ID)
-		if err != nil {
-			return fmt.Errorf("unable to get allocation from state store: %v", err)
-		}
-		if err := n.state.UpdateSummaryWithAlloc(alloc, existingAlloc, index); err != nil {
-			return err
 		}
 	}
 

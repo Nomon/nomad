@@ -336,6 +336,8 @@ func (s *StateStore) UpsertJob(index uint64, job *structs.Job) error {
 		}
 	}
 
+	s.updateSummaryWithJob(index, job, watcher, txn)
+
 	// Insert the job
 	if err := txn.Insert("jobs", job); err != nil {
 		return fmt.Errorf("job insert failed: %v", err)
@@ -474,7 +476,8 @@ func (s *StateStore) JobSummaryByID(jobID string) (*structs.JobSummary, error) {
 		return nil, err
 	}
 	if existing != nil {
-		return existing.(*structs.JobSummary), nil
+		summary := existing.(structs.JobSummary)
+		return summary.Copy(), nil
 	}
 
 	return nil, nil
@@ -652,7 +655,7 @@ func (s *StateStore) nestedUpsertEval(txn *memdb.Txn, index uint64, eval *struct
 		return fmt.Errorf("job summary lookup failed: %v", err)
 	}
 	if summaryRaw != nil {
-		js := summaryRaw.(*structs.JobSummary)
+		js := summaryRaw.(structs.JobSummary)
 		var hasSummaryChanged bool
 		for tg, num := range eval.QueuedAllocations {
 			if summary, ok := js.Summary[tg]; ok {
@@ -850,6 +853,9 @@ func (s *StateStore) nestedUpdateAllocFromClient(txn *memdb.Txn, watcher watch.I
 		return nil
 	}
 	exist := existing.(*structs.Allocation)
+	if err := s.updateSummaryWithAlloc(index, alloc, exist, watcher, txn); err != nil {
+		return fmt.Errorf("error updating allocation: %v", err)
+	}
 
 	// Trigger the watcher
 	watcher.Add(watch.Item{Alloc: alloc.ID})
@@ -904,6 +910,10 @@ func (s *StateStore) UpsertAllocs(index uint64, allocs []*structs.Allocation) er
 		}
 
 		exist, _ := existing.(*structs.Allocation)
+		if err := s.updateSummaryWithAlloc(index, alloc, exist, watcher, txn); err != nil {
+			return fmt.Errorf("error updating allocation: %v", err)
+		}
+
 		if exist == nil {
 			alloc.CreateIndex = index
 			alloc.ModifyIndex = index
@@ -1237,11 +1247,8 @@ func (s *StateStore) getJobStatus(txn *memdb.Txn, job *structs.Job, evalDelete b
 
 // updateSummaryWithJob creates or updates job summaries when new jobs are
 // upserted or existing ones are updated
-func (s *StateStore) UpdateSummaryWithJob(job *structs.Job, index uint64) error {
-	txn := s.db.Txn(true)
-	defer txn.Abort()
-
-	watcher := watch.NewItems()
+func (s *StateStore) updateSummaryWithJob(index uint64, job *structs.Job,
+	watcher watch.Items, txn *memdb.Txn) error {
 
 	existing, err := s.JobSummaryByID(job.ID)
 	if err != nil {
@@ -1282,23 +1289,17 @@ func (s *StateStore) UpdateSummaryWithJob(job *structs.Job, index uint64) error 
 		}
 	}
 
-	if err := txn.Insert("job_summary", existing); err != nil {
+	if err := txn.Insert("job_summary", *existing); err != nil {
 		return err
 	}
 
-	txn.Defer(func() { s.watch.notify(watcher) })
-	txn.Commit()
 	return nil
 }
 
 // updateSummaryWithAlloc updates the job summary when allocations are updated
 // or inserted
-func (s *StateStore) UpdateSummaryWithAlloc(newAlloc *structs.Allocation,
-	existingAlloc *structs.Allocation, index uint64) error {
-	txn := s.db.Txn(true)
-	defer txn.Abort()
-	watcher := watch.NewItems()
-
+func (s *StateStore) updateSummaryWithAlloc(index uint64, newAlloc *structs.Allocation,
+	existingAlloc *structs.Allocation, watcher watch.Items, txn *memdb.Txn) error {
 	jobID := newAlloc.JobID
 	taskGroup := newAlloc.TaskGroup
 	if existingAlloc != nil {
@@ -1377,12 +1378,10 @@ func (s *StateStore) UpdateSummaryWithAlloc(newAlloc *structs.Allocation,
 	}
 
 	existing.Summary[taskGroup] = tgSummary
-	if err := txn.Insert("job_summary", existing); err != nil {
+	if err := txn.Insert("job_summary", *existing); err != nil {
 		return fmt.Errorf("inserting job summary failed: %v", err)
 	}
 
-	txn.Defer(func() { s.watch.notify(watcher) })
-	txn.Commit()
 	return nil
 }
 
@@ -1474,7 +1473,7 @@ func (r *StateRestore) PeriodicLaunchRestore(launch *structs.PeriodicLaunch) err
 
 // JobSummaryRestore is used to restore a job summary
 func (r *StateRestore) JobSummaryRestore(jobSummary *structs.JobSummary) error {
-	if err := r.txn.Insert("job_summary", jobSummary); err != nil {
+	if err := r.txn.Insert("job_summary", *jobSummary); err != nil {
 		return fmt.Errorf("job summary insert failed: %v", err)
 	}
 	return nil
