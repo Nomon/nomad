@@ -56,20 +56,19 @@ FS Specific Options:
     Show file stat information instead of displaying the file, or listing the directory.
 
   -tail 
-	Show the files contents with offsets relative to the end of the file. If no
-	offset is given, -n is defaulted to 10.
+    Show the files contents with offsets relative to the end of the file. If no
+    offset is given, -n is defaulted to 10.
 
   -n
-	Sets the tail location in best-efforted number of lines relative to the end
-	of the file.
+    Sets the tail location in best-efforted number of lines relative to the end
+    of the file.
 
   -c
-	Sets the tail location in number of bytes relative to the end of the file.
+    Sets the tail location in number of bytes relative to the end of the file.
 
   -f
-	Causes the output to not stop when the end of the file is reached, but
-	rather to wait for additional output. 
-
+    Causes the output to not stop when the end of the file is reached, but
+    rather to wait for additional output. 
 `
 	return strings.TrimSpace(helpText)
 }
